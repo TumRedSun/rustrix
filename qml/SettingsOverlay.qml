@@ -606,7 +606,7 @@ Item {
                             Layout.fillWidth: true
 
                             GridLayout {
-                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(360 * Math.max(1, Theme.scale)))))
+                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(350 * Math.max(1, Theme.scale)))))
                                 columnSpacing: Theme.spacingMd
                                 rowSpacing: Theme.spacingSm
                                 Layout.fillWidth: true
@@ -631,7 +631,7 @@ Item {
                             Layout.fillWidth: true
 
                             GridLayout {
-                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(360 * Math.max(1, Theme.scale)))))
+                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(350 * Math.max(1, Theme.scale)))))
                                 columnSpacing: Theme.spacingMd
                                 rowSpacing: Theme.spacingSm
                                 Layout.fillWidth: true
@@ -660,7 +660,7 @@ Item {
                             Layout.fillWidth: true
 
                             GridLayout {
-                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(360 * Math.max(1, Theme.scale)))))
+                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(350 * Math.max(1, Theme.scale)))))
                                 columnSpacing: Theme.spacingMd
                                 rowSpacing: Theme.spacingSm
                                 Layout.fillWidth: true
@@ -697,7 +697,7 @@ Item {
                             Layout.fillWidth: true
 
                             GridLayout {
-                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(360 * Math.max(1, Theme.scale)))))
+                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(350 * Math.max(1, Theme.scale)))))
                                 columnSpacing: Theme.spacingMd
                                 rowSpacing: Theme.spacingSm
                                 Layout.fillWidth: true
@@ -772,7 +772,7 @@ Item {
                             }
 
                             GridLayout {
-                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(360 * Math.max(1, Theme.scale)))))
+                                columns: Math.max(1, Math.floor(width / Math.max(1, Math.round(350 * Math.max(1, Theme.scale)))))
                                 columnSpacing: Theme.spacingMd
                                 rowSpacing: Theme.spacingSm
                                 Layout.fillWidth: true
@@ -1334,12 +1334,18 @@ Item {
             font.pixelSize: Theme.fontSizeSm
             elide: Text.ElideRight
             Layout.fillWidth: true
-            Layout.minimumWidth: Math.round(120 * Math.max(1, Theme.scale))
+            Layout.minimumWidth: Math.round(90 * Math.max(1, Theme.scale))
         }
 
         Slider {
             id: slider
-            Layout.preferredWidth: Math.round(230 * Math.max(1, Theme.scale))
+            // Fills the leftover cell width instead of a fixed width — a
+            // fixed 230*scale made each row's minimum wider than its grid
+            // cell at 3 columns on 1920px screens, so the whole grid
+            // overflowed the right edge of the window.
+            Layout.fillWidth: true
+            Layout.minimumWidth: Math.round(130 * Math.max(1, Theme.scale))
+            Layout.maximumWidth: Math.round(460 * Math.max(1, Theme.scale))
             Layout.alignment: Qt.AlignVCenter
             from: fromVal
             to: toVal
@@ -1464,6 +1470,7 @@ Item {
             font.pixelSize: Theme.fontSizeSm
             elide: Text.ElideRight
             Layout.fillWidth: true
+            Layout.minimumWidth: Math.round(90 * Math.max(1, Theme.scale))
         }
 
         // Swatch doubles as the picker button — one obvious click target
@@ -1550,6 +1557,7 @@ Item {
             font.pixelSize: Theme.fontSizeSm
             elide: Text.ElideRight
             Layout.fillWidth: true
+            Layout.minimumWidth: Math.round(90 * Math.max(1, Theme.scale))
         }
 
         SpinBox {
@@ -1605,7 +1613,8 @@ Item {
         Rectangle {
             id: previewBox
             Layout.fillWidth: true
-            Layout.maximumWidth: Math.round(140 * Math.max(1, Theme.scale))
+            Layout.minimumWidth: Math.round(44 * Math.max(1, Theme.scale))
+            Layout.maximumWidth: Math.round(110 * Math.max(1, Theme.scale))
             Layout.preferredHeight: Theme.previewBoxH
             color: Theme.sidebarBg
             radius: Theme.radiusSm
@@ -1621,13 +1630,16 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 4
 
-                // Radius preview: a rectangle with that corner radius.
+                // Radius preview: a rectangle with that corner radius,
+                // sized to fit the preview box (a fixed 24px square used to
+                // overflow the box when the row was tight and paint over
+                // the SpinBox arrows).
                 Rectangle {
                     visible: bind.indexOf("adius") >= 0 || bind === "avatarRadius" || bind === "scrollbarRadius"
                     anchors.centerIn: parent
-                    width: 24
-                    height: 24
-                    radius: Math.min(Theme[bind], 24)
+                    width: Math.min(24, parent.width, parent.height)
+                    height: width
+                    radius: Math.min(Theme[bind], width / 2)
                     color: Theme.accent
                 }
 
@@ -1657,7 +1669,7 @@ Item {
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
-                        anchors.leftMargin: Math.min(8 + Theme[bind], parent.width - 8)
+                        anchors.leftMargin: Math.max(0, Math.min(8 + Theme[bind], parent.width - 8))
                         width: 8; height: 8; radius: 4; color: Theme.accent
                     }
                 }
