@@ -596,7 +596,12 @@ Rectangle {
             // The textarea itself is capped to half the chat-page height
             // (so very long drafts scroll inside the textarea instead of
             // pushing the message list off-screen).
-            Layout.preferredHeight: composerScroll.height + Theme.paddingSm * 2
+            //
+            // Math.max with iconBtnSize: on a single-line draft the
+            // textarea is shorter than the 📁/😀/↑ buttons, and the bar
+            // used to clip them at the bottom edge ("composer sunk too
+            // low").
+            Layout.preferredHeight: Math.max(composerScroll.height, Theme.iconBtnSize) + Theme.paddingSm * 2
             color: Theme.sidebarBg
             visible: chatPageRoot.roomId.length > 0
 
@@ -937,13 +942,15 @@ Rectangle {
             //   atYBeginning == false → user scrolled up to read history
             var wasAtBottom = messagesView.atYBeginning
             var savedY = messagesView.contentY
+            var savedContentHeight = messagesView.contentHeight
             MatrixClient.loadRoomMessages(chatPageRoot.roomId)
-            // Restore after the model resets (onHistoryLoaded handles
-            // re-positioning to the bottom; for the "scrolled up" case
-            // we re-apply savedY here via a Timer to let the model
-            // settle first).
+            // Restore after the model settles (onHistoryLoaded handles
+            // re-positioning to the bottom for the initial room load; for
+            // the "scrolled up" case we re-apply the saved position here
+            // via a Timer to let the model settle first).
             if (!wasAtBottom) {
                 restoreScrollTimer.savedY = savedY
+                restoreScrollTimer.savedContentHeight = savedContentHeight
                 restoreScrollTimer.start()
             }
         }
@@ -954,6 +961,7 @@ Rectangle {
     Timer {
         id: restoreScrollTimer
         property real savedY: 0
+        property real savedContentHeight: 0
         interval: 50
         repeat: false
         onTriggered: {
@@ -961,8 +969,15 @@ Rectangle {
             // BottomToTop layout when scrolled up.
             var minY = messagesView.originY
             var maxY = messagesView.originY + messagesView.contentHeight - messagesView.height
-            var clamped = Math.max(minY, Math.min(savedY, maxY))
-            messagesView.contentY = clamped
+            // New rows are inserted at the model origin (BottomToTop =
+            // visual bottom), which pushes the rows the user was reading
+            // upward by the content growth. Shift contentY by the same
+            // delta so their reading position stays on the same messages
+            // (for a full reset the delta is 0 and this degenerates to
+            // the plain clamp).
+            var growth = Math.max(0, messagesView.contentHeight - savedContentHeight)
+            var target = savedY + growth
+            messagesView.contentY = Math.max(minY, Math.min(target, maxY))
         }
     }
 
