@@ -5,6 +5,7 @@
 //! Boots the Tokio runtime, registers all QML singletons and types,
 //! and starts the Qt UI event loop.
 
+use cpp::cpp;
 use cstr::cstr;
 use qmetaobject::{qrc, QPointer, QObject, QmlEngine, qt_base_class};
 use std::sync::{Arc, OnceLock};
@@ -68,6 +69,7 @@ qrc! {
     "assets" as "/assets" {
         "logo.svg",
         "default-avatar.svg",
+        "RustRix.png",
     }
 }
 
@@ -105,6 +107,12 @@ impl qmetaobject::QSingletonInit for Backend {
     }
 }
 
+// Qt headers for the cpp! fragments below (window icon setup).
+cpp! {{
+    #include <QtGui/QGuiApplication>
+    #include <QtGui/QIcon>
+}}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_secs()
@@ -114,6 +122,16 @@ fn main() {
     qml_resources();
 
     let mut engine = QmlEngine::new();
+
+    // Application-wide window / taskbar icon, embedded via the qrc asset
+    // bundle above. QML's ApplicationWindow has no icon property, so this
+    // is done here once for every window of the process.
+    unsafe {
+        cpp!([]
+        {
+            QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/RustRix.png")));
+        })
+    };
 
     // The window title is set in main.qml ("Rustrix — <user_id>" / "Rustrix").
     // The binary is also named `rustrix`, so the WM_CLASS / Wayland app_id

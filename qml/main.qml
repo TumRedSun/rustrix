@@ -8,6 +8,9 @@ import MatrixClient
 ApplicationWindow {
     id: root
     visible: true
+    // The window/taskbar icon is set from main.rs via
+    // QGuiApplication::setWindowIcon() (QML's ApplicationWindow has no
+    // icon property), sourced from the embedded qrc asset bundle.
     width: 1280
     height: 800
     minimumWidth: 720

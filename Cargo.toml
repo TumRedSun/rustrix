@@ -26,6 +26,8 @@ ruma = { version = "0.16", features = ["client-api-c"] }
 # Qt bindings (pure Rust, no C++ glue)
 qmetaobject = "0.2"
 qttypes = "0.2"
+# C++ glue for the window-icon fragment in main.rs (cpp!/cpp_build).
+cpp = "0.5"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -58,6 +60,9 @@ hickory-resolver = "0.26"
 hickory-proto = "0.26"
 paste = "1"
 cstr = "0.2"
+
+[build-dependencies]
+cpp_build = "0.5"
 
 [features]
 default = ["keyring-secret"]

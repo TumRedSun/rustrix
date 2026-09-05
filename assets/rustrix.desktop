@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Rustrix
+GenericName=Matrix Client
+Comment=Matrix client for Linux built with Rust and Qt 6 / QML
+Exec=rustrix
+Icon=rustrix
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=matrix;chat;messenger;rustrix;
+StartupWMClass=rustrix
