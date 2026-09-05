@@ -558,39 +558,90 @@ Item {
 
                                         Item { Layout.fillHeight: true }
 
-                                        // Composer mock.
+                                        // Composer mock — mirrors the real
+                                        // composer in ChatPage.qml:
+                                        //   [📁 😀] │ [textarea] │ [↑]
+                                        // so the preview is WYSIWYG (same icon
+                                        // buttons, same square send button).
                                         Rectangle {
                                             Layout.fillWidth: true
-                                            Layout.preferredHeight: Math.max(Theme.iconBtnSize, composerRow.implicitHeight + Theme.paddingSm * 2)
-                                            radius: Theme.radiusSm
+                                            Layout.preferredHeight: Theme.iconBtnSize + Theme.paddingSm * 2
                                             color: Theme.sidebarBg
-                                            border.color: Theme.border
-                                            border.width: 1
 
                                             RowLayout {
-                                                id: composerRow
                                                 anchors.fill: parent
                                                 anchors.margins: Theme.paddingSm
                                                 spacing: Theme.spacingSm
 
-                                                Label {
-                                                    Layout.fillWidth: true
-                                                    text: Tr.tr(Theme.language, "Message…")
-                                                    color: Theme.muted
-                                                    font.pixelSize: Theme.fontSizeSm
-                                                    elide: Text.ElideRight
+                                                // Attach/insert cluster with the
+                                                // vertical divider, like the real
+                                                // composer.
+                                                RowLayout {
+                                                    Layout.alignment: Qt.AlignBottom
+                                                    spacing: 0
+
+                                                    Rectangle {
+                                                        Layout.preferredWidth: Theme.iconBtnSize
+                                                        Layout.preferredHeight: Theme.iconBtnSize
+                                                        radius: Theme.radiusSm
+                                                        color: fileMock.containsMouse ? Qt.lighter(Theme.sidebarBg, 1.4) : "transparent"
+                                                        Label {
+                                                            anchors.centerIn: parent
+                                                            text: "\uD83D\uDCC1"  // 📁
+                                                            font.pixelSize: Theme.fontSizeLg
+                                                        }
+                                                        MouseArea { id: fileMock; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor }
+                                                    }
+                                                    Rectangle {
+                                                        Layout.preferredWidth: Theme.iconBtnSize
+                                                        Layout.preferredHeight: Theme.iconBtnSize
+                                                        radius: Theme.radiusSm
+                                                        color: emojiMock.containsMouse ? Qt.lighter(Theme.sidebarBg, 1.4) : "transparent"
+                                                        Label {
+                                                            anchors.centerIn: parent
+                                                            text: "\uD83D\uDE00"  // 😀
+                                                            font.pixelSize: Theme.fontSizeLg
+                                                        }
+                                                        MouseArea { id: emojiMock; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor }
+                                                    }
+                                                    Rectangle {
+                                                        Layout.preferredWidth: 1
+                                                        Layout.preferredHeight: Theme.iconBtnSize - Theme.paddingSm
+                                                        Layout.leftMargin: Theme.spacingSm
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                        color: Theme.border
+                                                    }
                                                 }
+
+                                                // Placeholder textarea (app default
+                                                // font size, like the real TextArea).
+                                                Item {
+                                                    Layout.fillWidth: true
+                                                    Layout.alignment: Qt.AlignBottom
+                                                    implicitHeight: Theme.iconBtnSize
+                                                    Label {
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        text: Tr.tr(Theme.language, "Type a message…")
+                                                        color: Theme.muted
+                                                        font.pixelSize: Theme.fontSizeMd
+                                                        elide: Text.ElideRight
+                                                        width: parent.width
+                                                    }
+                                                }
+
+                                                // Square send button, like the real one.
                                                 Rectangle {
-                                                    Layout.preferredWidth: Theme.iconBtnSize * 0.6
-                                                    Layout.preferredHeight: Theme.iconBtnSize * 0.6
-                                                    Layout.alignment: Qt.AlignVCenter
-                                                    radius: width / 2
+                                                    Layout.preferredWidth: Theme.iconBtnSize
+                                                    Layout.preferredHeight: Theme.iconBtnSize
+                                                    Layout.alignment: Qt.AlignBottom
+                                                    radius: Theme.radiusSm
                                                     color: Theme.accent
                                                     Label {
                                                         anchors.centerIn: parent
-                                                        text: "→"
+                                                        text: "\u2191"  // ↑
                                                         color: Theme.accentFg
-                                                        font.pixelSize: Theme.fontSizeSm
+                                                        font.pixelSize: Theme.fontSizeLg
+                                                        font.bold: true
                                                     }
                                                 }
                                             }
