@@ -33,8 +33,12 @@ Dialog {
     id: dialog
     modal: true
     title: Tr.tr(Theme.language, "Choose files to send")
-    width: 720
-    height: 480
+    // Size derives from the client window (grows with Theme.scale above the
+    // reference, capped by the overlay size — see EmojiPicker.qml), so the
+    // dialog also fits small windows instead of rendering at a fixed
+    // 720x480.
+    width: Math.min(Math.round(720 * Math.max(1, Theme.scale)), parent.width - Theme.paddingLg * 2)
+    height: Math.min(Math.round(480 * Math.max(1, Theme.scale)), parent.height - Theme.paddingLg * 2)
     standardButtons: Dialog.Open | Dialog.Cancel
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 

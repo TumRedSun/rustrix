@@ -25,8 +25,10 @@ Dialog {
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(440, parent.width - 80)
-    height: Math.min(420, parent.height - 80)
+    // Size derives from the client window (grows with Theme.scale above the
+    // reference, capped by the overlay size — see EmojiPicker.qml).
+    width: Math.min(Math.round(440 * Math.max(1, Theme.scale)), parent.width - Theme.paddingLg * 2)
+    height: Math.min(Math.round(420 * Math.max(1, Theme.scale)), parent.height - Theme.paddingLg * 2)
     padding: 0
 
     // ── Public API ──

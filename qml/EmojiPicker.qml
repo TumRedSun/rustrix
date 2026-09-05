@@ -13,7 +13,8 @@
 //
 // - Centered modal dialog.
 // - Top: search field. Type to filter (matches emoji name/keywords).
-// - Below: scrollable square grid of emoji (8 columns). Wheel-scroll or
+// - Below: scrollable square grid of emoji (column count adapts to the
+//   dialog width). Wheel-scroll or
 //   Up/Down arrows move the highlight (rofi-style keyboard navigation).
 // - Enter / click: in "reaction" mode sends a reaction; in "insert" mode
 //   emits `emojiPicked(emoji)` so the caller can insert it as text.
@@ -41,8 +42,16 @@ Dialog {
     // include the space/sidebar columns).
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(560, parent.width - 80)
-    height: Math.min(520, parent.height - 80)
+    // Size derives from the CLIENT WINDOW, never from the content:
+    // - above the 1280x800 reference the dialog grows with Theme.scale
+    //   (kept in sync with the live window size by main.qml);
+    // - below it the dialog keeps its reference size and only shrinks when
+    //   the overlay itself gets too small (the parent.width cap). Scaling
+    //   down twice (Theme.scale already reflects the small window) would
+    //   make the picker uselessly tiny — the screenshot-sized window
+    //   (708x545 → scale 0.55) must still get the full-size 560px dialog.
+    width: Math.min(Math.round(560 * Math.max(1, Theme.scale)), parent.width - Theme.paddingLg * 2)
+    height: Math.min(Math.round(520 * Math.max(1, Theme.scale)), parent.height - Theme.paddingLg * 2)
     padding: 0
     // Close-on-Escape is built into Dialog. We also close on outside click
     // (default for modal Dialogs).
@@ -145,8 +154,20 @@ Dialog {
         anchors.fill: parent
         anchors.margins: Theme.paddingMd
         spacing: Theme.spacingSm
+        // Nothing may ever paint outside the dialog background, even if a
+        // translated string ends up wider than the layout expects.
+        clip: true
 
         // ── Header ──
+        // The hint label is the flexible element: it fills the remaining
+        // width and elides. Translated hint text varies a lot in length
+        // (Russian is ~45% wider than English); if the row sized itself to
+        // the text, the whole ColumnLayout would grow wider than the
+        // dialog and the search field + grid would stick out past the
+        // background ("background shrinks when I change language"). With
+        // minimumWidth 0 + preferredWidth 0 + fillWidth the row's implicit
+        // width stays language-independent, so the dialog geometry depends
+        // only on the window.
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSm
@@ -157,8 +178,9 @@ Dialog {
                 font.pixelSize: Theme.fontSizeLg
                 font.bold: true
                 color: Theme.windowFg
+                elide: Text.ElideRight
+                Layout.maximumWidth: Math.round(240 * Math.max(1, Theme.scale))
             }
-            Item { Layout.fillWidth: true }
             Label {
                 // Hint text — keyboard shortcuts.
                 text: root.mode === "insert"
@@ -166,6 +188,11 @@ Dialog {
                       : Tr.tr(Theme.language, "Type to search  ·  ↑↓ to move  ·  Enter to react  ·  Esc to close")
                 color: Theme.muted
                 font.pixelSize: Theme.fontSizeXs
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignRight
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.preferredWidth: 0
             }
             ToolButton {
                 text: "\u2715"  // ✕
@@ -270,10 +297,13 @@ Dialog {
             GridView {
                 id: gridView
                 model: filteredModel
-                // 8 columns fits comfortably in a 560px dialog with each
-                // cell ~56px wide. On narrower windows GridView will
-                // automatically show fewer columns (cells wrap).
-                cellWidth: Math.floor(width / 8)
+                // Column count derives from the dialog width (which itself
+                // derives from the window via Theme.scale): ~62px cells at
+                // reference size → 8 columns in the 560px dialog, fewer on
+                // small windows, more on large ones. (A fixed count of 8
+                // would just shrink cells to dots on narrow dialogs.)
+                property int columns: Math.max(4, Math.floor(width / Math.max(1, Math.round(62 * Math.max(1, Theme.scale)))))
+                cellWidth: Math.floor(width / columns)
                 cellHeight: cellWidth
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -305,7 +335,7 @@ Dialog {
                         Text {
                             anchors.centerIn: parent
                             text: model.emoji
-                            font.pixelSize: Math.min(parent.width * 0.6, 28)
+                            font.pixelSize: Math.min(parent.width * 0.6, Math.round(28 * Math.max(1, Theme.scale)))
                             // Render emoji as-is (they're already
                             // colour glyphs in Noto Color Emoji).
                             renderType: Text.NativeRendering
