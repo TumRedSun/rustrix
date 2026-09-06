@@ -880,16 +880,72 @@ Rectangle {
         }
     }
 
+    // ── Scroll preservation across sync reloads ──
+    // A reload may reset the model or insert rows at the model origin
+    // (BottomToTop = visual bottom), both of which snap the list back to
+    // the newest message. When the user has scrolled up we instead anchor
+    // to the event_id of the topmost visible message and restore the exact
+    // position in the same event-loop pass as the model change
+    // (Qt.callLater runs before the affected frame is painted), with a
+    // short retry timer for the reset path where delegates are rebuilt.
+    property bool pendingScrollRestore: false
+    property string savedAnchorEventId: ""
+    property real savedAnchorOffset: 0
+
+    function restoreScrollAnchor() {
+        if (!pendingScrollRestore) return
+        for (var i = 0; i < messagesView.count; ++i) {
+            var it = messagesView.itemAtIndex(i)
+            if (it && it.eventId === savedAnchorEventId) {
+                messagesView.contentY = it.y - savedAnchorOffset
+                pendingScrollRestore = false
+                anchorRetryTimer.stop()
+                return
+            }
+        }
+        // Anchor not instantiated yet (model reset path) — the retry timer
+        // keeps trying for a few hundred ms.
+    }
+
+    Timer {
+        id: anchorRetryTimer
+        interval: 40
+        repeat: true
+        running: false
+        property int ticks: 0
+        onTriggered: {
+            ticks += 1
+            chatPageRoot.restoreScrollAnchor()
+            if (ticks >= 15) {
+                // Give up: keep whatever position the list ended up in.
+                chatPageRoot.pendingScrollRestore = false
+                stop()
+            }
+        }
+    }
+
     Connections {
         target: MessageModel
+        function onCountChanged() {
+            if (pendingScrollRestore) {
+                // Runs synchronously inside apply_entries — restore before
+                // the frame paints so the jump to the bottom is never seen.
+                restoreScrollAnchor()
+                anchorRetryTimer.ticks = 0
+                anchorRetryTimer.restart()
+            }
+        }
         function onHistoryLoaded(rid) {
             if (rid === roomId) {
-                // If we just switched to this room (no saved scroll
-                // position), pin to the bottom so the newest message
-                // is visible. Otherwise, the syncDone handler in
-                // ChatPage already restored scroll via the Timer.
-                if (!restoreScrollTimer.running) {
+                if (!pendingScrollRestore) {
+                    // If we just switched to this room (no saved scroll
+                    // position), pin to the bottom so the newest message
+                    // is visible.
                     messagesView.positionViewAtBeginning()
+                } else {
+                    restoreScrollAnchor()
+                    anchorRetryTimer.ticks = 0
+                    anchorRetryTimer.restart()
                 }
             }
         }
@@ -937,52 +993,30 @@ Rectangle {
         repeat: false
         onTriggered: {
             if (chatPageRoot.roomId.length === 0) return
-            // Save scroll state. For BottomToTop layout:
+            // For BottomToTop layout:
             //   atYBeginning == true  → user is at the bottom (newest)
             //   atYBeginning == false → user scrolled up to read history
-            var wasAtBottom = messagesView.atYBeginning
-            var savedY = messagesView.contentY
-            var savedContentHeight = messagesView.contentHeight
-            MatrixClient.loadRoomMessages(chatPageRoot.roomId)
-            // Restore after the model settles (onHistoryLoaded handles
-            // re-positioning to the bottom for the initial room load; for
-            // the "scrolled up" case we re-apply the saved position here
-            // via a Timer to let the model settle first).
-            if (!wasAtBottom) {
-                restoreScrollTimer.savedY = savedY
-                restoreScrollTimer.savedContentHeight = savedContentHeight
-                restoreScrollTimer.start()
+            // In the latter case anchor to the topmost visible message so
+            // the position is restored right when the model updates.
+            if (messagesView.atYBeginning) {
+                pendingScrollRestore = false
+            } else {
+                var top = messagesView.itemAt(messagesView.width / 2, messagesView.contentY + 1)
+                if (top && top.eventId !== undefined) {
+                    savedAnchorEventId = top.eventId
+                    savedAnchorOffset = top.y - messagesView.contentY
+                    pendingScrollRestore = true
+                } else {
+                    pendingScrollRestore = false
+                }
             }
-        }
-    }
-
-    // Used to restore scroll position after a sync-triggered reload
-    // when the user was NOT at the bottom.
-    Timer {
-        id: restoreScrollTimer
-        property real savedY: 0
-        property real savedContentHeight: 0
-        interval: 50
-        repeat: false
-        onTriggered: {
-            // Clamp to valid range. contentY can be negative for
-            // BottomToTop layout when scrolled up.
-            var minY = messagesView.originY
-            var maxY = messagesView.originY + messagesView.contentHeight - messagesView.height
-            // New rows are inserted at the model origin (BottomToTop =
-            // visual bottom), which pushes the rows the user was reading
-            // upward by the content growth. Shift contentY by the same
-            // delta so their reading position stays on the same messages
-            // (for a full reset the delta is 0 and this degenerates to
-            // the plain clamp).
-            var growth = Math.max(0, messagesView.contentHeight - savedContentHeight)
-            var target = savedY + growth
-            messagesView.contentY = Math.max(minY, Math.min(target, maxY))
+            MatrixClient.loadRoomMessages(chatPageRoot.roomId)
         }
     }
 
     // Also update when roomId changes
     onRoomIdChanged: {
+        pendingScrollRestore = false
         lookupRoomName()
         // Explicitly load messages for the newly selected room.
         // This is the ONLY place we trigger loadRoomMessages from
