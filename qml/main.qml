@@ -400,11 +400,9 @@ ApplicationWindow {
                                     elide: Text.ElideRight
                                 }
 
-                                ToolButton {
-                                    text: "\u27F3"  // ⟳
-                                    font.pixelSize: Theme.fontSizeMd
-                                    onClicked: MatrixClient.refreshRooms()
-                                }
+                                // No manual refresh button: the room list
+                                // refreshes automatically after every sync
+                                // cycle (and on a backup timer in main.qml).
 
                                 // "+" button — opens the user search dialog.
                                 // In DM mode it lets you start a new DM;

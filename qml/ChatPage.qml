@@ -310,6 +310,19 @@ Rectangle {
                     verticalLayoutDirection: ListView.BottomToTop
                     cacheBuffer: 4000
 
+                    // While a sync reload is pending, keep the reading
+                    // position pinned: new rows are appended at the model
+                    // origin (visual bottom in BottomToTop), so every
+                    // content growth must shift contentY by the same delta.
+                    // onContentHeightChanged fires during layout, before the
+                    // affected frame is painted — the shift is never seen.
+                    onContentHeightChanged: {
+                        if (chatPageRoot.pendingScrollShift) {
+                            contentY += contentHeight - chatPageRoot.scrollShiftBaseHeight
+                            chatPageRoot.scrollShiftBaseHeight = contentHeight
+                        }
+                    }
+
                     delegate: MessageBubble {
                         width: messagesView.width - Theme.paddingMd * 2
                         anchors.horizontalCenter: undefined
@@ -881,72 +894,46 @@ Rectangle {
     }
 
     // ── Scroll preservation across sync reloads ──
-    // A reload may reset the model or insert rows at the model origin
-    // (BottomToTop = visual bottom), both of which snap the list back to
-    // the newest message. When the user has scrolled up we instead anchor
-    // to the event_id of the topmost visible message and restore the exact
-    // position in the same event-loop pass as the model change
-    // (Qt.callLater runs before the affected frame is painted), with a
-    // short retry timer for the reset path where delegates are rebuilt.
-    property bool pendingScrollRestore: false
-    property string savedAnchorEventId: ""
-    property real savedAnchorOffset: 0
+    // apply_entries patches the model without a reset, but new rows are
+    // appended at the model origin — the VISUAL bottom in BottomToTop —
+    // which would push the messages the user is reading upward. While a
+    // fetch is in flight, remember the content height and, on every
+    // content-height change until the fetch's update is laid out, shift
+    // contentY by the same delta. onContentHeightChanged fires during the
+    // layout pass, before the affected frame is painted, so the shift is
+    // never visible on screen.
+    property bool pendingScrollShift: false
+    property real scrollShiftBaseHeight: 0
 
-    function restoreScrollAnchor() {
-        if (!pendingScrollRestore) return
-        for (var i = 0; i < messagesView.count; ++i) {
-            var it = messagesView.itemAtIndex(i)
-            if (it && it.eventId === savedAnchorEventId) {
-                messagesView.contentY = it.y - savedAnchorOffset
-                pendingScrollRestore = false
-                anchorRetryTimer.stop()
-                return
-            }
-        }
-        // Anchor not instantiated yet (model reset path) — the retry timer
-        // keeps trying for a few hundred ms.
+    // Safety bound: the shift window always ends this long after a reload
+    // was triggered, even if the fetch produced no model change at all.
+    Timer {
+        id: scrollShiftSlowEndTimer
+        interval: 10000
+        onTriggered: chatPageRoot.pendingScrollShift = false
     }
 
+    // Normal bound: the window ends 60ms after the fetched update was
+    // applied to the model (its layout is done by then).
     Timer {
-        id: anchorRetryTimer
-        interval: 40
-        repeat: true
-        running: false
-        property int ticks: 0
-        onTriggered: {
-            ticks += 1
-            chatPageRoot.restoreScrollAnchor()
-            if (ticks >= 15) {
-                // Give up: keep whatever position the list ended up in.
-                chatPageRoot.pendingScrollRestore = false
-                stop()
-            }
-        }
+        id: scrollShiftEndTimer
+        interval: 60
+        onTriggered: chatPageRoot.pendingScrollShift = false
     }
 
     Connections {
         target: MessageModel
         function onCountChanged() {
-            if (pendingScrollRestore) {
-                // Runs synchronously inside apply_entries — restore before
-                // the frame paints so the jump to the bottom is never seen.
-                restoreScrollAnchor()
-                anchorRetryTimer.ticks = 0
-                anchorRetryTimer.restart()
+            if (pendingScrollShift) {
+                scrollShiftEndTimer.restart()
             }
         }
         function onHistoryLoaded(rid) {
-            if (rid === roomId) {
-                if (!pendingScrollRestore) {
-                    // If we just switched to this room (no saved scroll
-                    // position), pin to the bottom so the newest message
-                    // is visible.
-                    messagesView.positionViewAtBeginning()
-                } else {
-                    restoreScrollAnchor()
-                    anchorRetryTimer.ticks = 0
-                    anchorRetryTimer.restart()
-                }
+            if (rid === roomId && !pendingScrollShift) {
+                // Initial room load: pin to the bottom (newest message).
+                // Sync reloads no longer emit historyLoaded — they keep the
+                // scroll position via pendingScrollShift instead.
+                messagesView.positionViewAtBeginning()
             }
         }
     }
@@ -996,27 +983,18 @@ Rectangle {
             // For BottomToTop layout:
             //   atYBeginning == true  → user is at the bottom (newest)
             //   atYBeginning == false → user scrolled up to read history
-            // In the latter case anchor to the topmost visible message so
-            // the position is restored right when the model updates.
-            if (messagesView.atYBeginning) {
-                pendingScrollRestore = false
-            } else {
-                var top = messagesView.itemAt(messagesView.width / 2, messagesView.contentY + 1)
-                if (top && top.eventId !== undefined) {
-                    savedAnchorEventId = top.eventId
-                    savedAnchorOffset = top.y - messagesView.contentY
-                    pendingScrollRestore = true
-                } else {
-                    pendingScrollRestore = false
-                }
-            }
+            // In the latter case compensate for the rows the fetch is about
+            // to append at the origin (see pendingScrollShift above).
+            pendingScrollShift = !messagesView.atYBeginning
+            scrollShiftBaseHeight = messagesView.contentHeight
+            scrollShiftSlowEndTimer.restart()
             MatrixClient.loadRoomMessages(chatPageRoot.roomId)
         }
     }
 
     // Also update when roomId changes
     onRoomIdChanged: {
-        pendingScrollRestore = false
+        pendingScrollShift = false
         lookupRoomName()
         // Explicitly load messages for the newly selected room.
         // This is the ONLY place we trigger loadRoomMessages from

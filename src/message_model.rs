@@ -649,15 +649,17 @@ impl MessageModel {
     ///
     /// ── Incremental update (flicker fix) ──
     /// A full begin_reset_model makes the ListView destroy and re-create
-    /// every visible delegate, which shows as a one-frame flash of the
-    /// whole chat on every sync-triggered reload. The common reload
-    /// outcomes are handled with granular model signals instead:
-    ///   1. identical content                          → no signals at all
-    ///   2. same rows, some changed (edit / reaction)  → dataChanged per row
-    ///   3. new messages prepended (newest-first list) → insertRows at the
-    ///      top + dataChanged for changed shared rows
-    /// Anything else (order shuffle, middle removals, first load, room
-    /// switch) falls back to the old full reset.
+    /// every visible delegate; combined with the BottomToTop layout that
+    /// snaps the viewport to the newest message first and scrolls back —
+    /// the "jump to the bottom on every sync" bug. Instead, the fresh
+    /// rows are reconciled against the current ones and expressed with
+    /// granular model signals, so existing delegates are never rebuilt:
+    ///   - identical content                    → no signals at all
+    ///   - rows removed / inserted / changed    → removeRows / insertRows /
+    ///                                            dataChanged per row
+    /// A full reset is only used for the very first load of a room and for
+    /// a genuine reshuffle of shared rows (which a normal sync reload
+    /// never produces).
     pub fn apply_entries(&mut self, mut entries: Vec<MessageEntry>, room_id: &str) {
         // Guard against stale responses: if the user navigated to a
         // different room while the fetch was in flight, skip.
@@ -678,108 +680,125 @@ impl MessageModel {
 
         let old_len = self.entries.borrow().len();
 
-        // Case 1: same ids in the same order → in-place row updates only.
-        if old_len == entries.len() {
-            let identical = {
-                let old = self.entries.borrow();
-                old.iter().zip(entries.iter()).all(|(a, b)| a.event_id == b.event_id)
-            };
-            if identical {
-                let changed: Vec<usize> = {
-                    let old = self.entries.borrow();
-                    (0..entries.len())
-                        .filter(|&i| !Self::rows_equal(&old[i], &entries[i]))
-                        .collect()
-                };
-                if changed.is_empty() {
-                    ::log::info!(
-                        "apply_entries: {} rows identical — model untouched",
-                        entries.len()
-                    );
-                    return;
-                }
-                {
-                    let mut cur = self.entries.borrow_mut();
-                    for &i in &changed {
-                        cur[i] = entries[i].clone();
-                    }
-                }
-                for &i in &changed {
-                    let idx = self.row_index(i as i32);
-                    self.data_changed(idx, idx);
-                }
-                ::log::info!(
-                    "apply_entries: updated {} of {} rows in place (no reset)",
-                    changed.len(),
-                    entries.len()
-                );
-                return;
-            }
+        // First load of a room: the list is empty anyway, so a reset is
+        // both simplest and flicker-free. historyLoaded pins the view to
+        // the newest message.
+        if old_len == 0 {
+            ::log::info!(
+                "MessageModel::apply_entries: initial load, {} messages for room={}",
+                entries.len(), room_id
+            );
+            self.begin_reset_model();
+            *self.entries.borrow_mut() = entries;
+            self.end_reset_model();
+            self.count_changed();
+            self.historyLoaded(QString::from(room_id));
+            return;
         }
 
-        // Case 2: the old rows are a contiguous suffix of the new rows —
-        // new messages were prepended to the newest-first list (the normal
-        // "new message arrived" reload). Insert them without touching the
-        // shared rows' delegates.
-        if entries.len() > old_len {
-            let is_suffix = {
-                let old = self.entries.borrow();
-                entries[entries.len() - old_len..]
-                    .iter()
-                    .zip(old.iter())
-                    .all(|(b, a)| b.event_id == a.event_id)
-            };
-            if is_suffix {
-                let k = entries.len() - old_len;
-                // Changed shared rows, in NEW indices (shifted by k).
-                let changed_shared: Vec<usize> = {
-                    let old = self.entries.borrow();
-                    (0..old_len)
-                        .filter(|&i| !Self::rows_equal(&old[i], &entries[k + i]))
-                        .map(|i| k + i)
-                        .collect()
-                };
-                let first_load = old_len == 0;
-                self.begin_insert_rows(0, k as i32 - 1);
-                *self.entries.borrow_mut() = entries;
-                self.end_insert_rows();
-                for &i in &changed_shared {
-                    let idx = self.row_index(i as i32);
-                    self.data_changed(idx, idx);
-                }
-                self.count_changed();
-                // Only the very first load needs the "pin to bottom" nudge
-                // (onHistoryLoaded in QML). For live appends the ListView
-                // already shows the inserted bottom rows when the user is
-                // at the bottom, and keeps their scroll position when they
-                // are reading history.
-                if first_load {
-                    self.historyLoaded(QString::from(room_id));
-                }
-                ::log::info!(
-                    "apply_entries: inserted {} new rows ({} shared rows updated, no reset)",
-                    k,
-                    changed_shared.len()
-                );
-                return;
-            }
+        // Classify rows: which were removed, which are new, and whether
+        // the shared (surviving) rows kept their relative order.
+        // (QString has no Hash impl, so the sets are built from Strings.)
+        let old_ids: Vec<String> = self
+            .entries
+            .borrow()
+            .iter()
+            .map(|e| e.event_id.to_string())
+            .collect();
+        let new_ids: Vec<String> = entries.iter().map(|e| e.event_id.to_string()).collect();
+        let old_set: std::collections::HashSet<String> = old_ids.iter().cloned().collect();
+        let new_set: std::collections::HashSet<String> = new_ids.iter().cloned().collect();
+
+        let shared_old: Vec<&String> = old_ids.iter().filter(|id| new_set.contains(*id)).collect();
+        let shared_new: Vec<&String> = new_ids.iter().filter(|id| old_set.contains(*id)).collect();
+
+        if shared_old.is_empty() && shared_new.is_empty() {
+            // No shared rows at all — the fetched room's content is
+            // completely different from what is displayed: a room switch.
+            // Reset and let historyLoaded pin the view to the newest
+            // message.
+            ::log::info!("apply_entries: no shared rows (room switch) — full reset");
+            self.begin_reset_model();
+            *self.entries.borrow_mut() = entries;
+            self.end_reset_model();
+            self.count_changed();
+            self.historyLoaded(QString::from(room_id));
+            return;
         }
 
-        // Case 3: fallback — full reset (first load with mismatched
-        // content, room switch, reshuffle, middle removals).
-        let own_count = entries.iter().filter(|m| m.is_own).count();
-        let other_count = entries.iter().filter(|m| !m.is_own && m.kind.to_string() != "system").count();
-        let system_count = entries.iter().filter(|m| m.kind.to_string() == "system").count();
+        if shared_old != shared_new {
+            // The surviving rows changed their relative order — cannot be
+            // expressed with row signals. Never expected from a sync
+            // reload; fall back to a full reset.
+            ::log::info!("apply_entries: shared row order changed — full reset");
+            self.begin_reset_model();
+            *self.entries.borrow_mut() = entries;
+            self.end_reset_model();
+            self.count_changed();
+            self.historyLoaded(QString::from(room_id));
+            return;
+        }
+
+        // Snapshot of the old rows for change detection (the model vec is
+        // mutated below, so compare against a private copy).
+        let old_rows: Vec<MessageEntry> = self.entries.borrow().clone();
+
+        // 1) Removals — oldest position last so the indices stay valid
+        //    while removing.
+        let removed: Vec<usize> = (0..old_len)
+            .filter(|i| !new_set.contains(&old_ids[*i]))
+            .collect();
+        for &i in removed.iter().rev() {
+            self.begin_remove_rows(i as i32, i as i32);
+            self.entries.borrow_mut().remove(i);
+            self.end_remove_rows();
+        }
+
+        // 2) Insertions — ascending, so each index lands at its final
+        //    position after the removals above.
+        let inserted: Vec<usize> = (0..entries.len())
+            .filter(|i| !old_set.contains(&new_ids[*i]))
+            .collect();
+        for &i in inserted.iter() {
+            self.begin_insert_rows(i as i32, i as i32);
+            self.entries.borrow_mut().insert(i, entries[i].clone());
+            self.end_insert_rows();
+        }
+
+        // 3) In-place updates for shared rows whose content changed
+        //    (edits, reactions, avatar/display-name resolution).
+        let old_by_id: std::collections::HashMap<String, &MessageEntry> =
+            old_rows.iter().map(|e| (e.event_id.to_string(), e)).collect();
+        let changed: Vec<usize> = (0..entries.len())
+            .filter(|i| old_set.contains(&new_ids[*i]))
+            .filter(|i| {
+                let old_row = old_by_id
+                    .get(new_ids[*i].as_str())
+                    .expect("shared row present");
+                !Self::rows_equal(old_row, &entries[*i])
+            })
+            .collect();
+        {
+            let mut cur = self.entries.borrow_mut();
+            for &i in &changed {
+                cur[i] = entries[i].clone();
+            }
+        }
+        for &i in &changed {
+            let idx = self.row_index(i as i32);
+            self.data_changed(idx, idx);
+        }
+
+        if !removed.is_empty() || !inserted.is_empty() {
+            self.count_changed();
+        }
         ::log::info!(
-            "MessageModel::apply_entries: reset with {} messages for room={} (own={}, other={}, system={}), replacing {} existing",
-            entries.len(), room_id, own_count, other_count, system_count, old_len
+            "apply_entries: reconciled for room={} ({} removed, {} inserted, {} updated, no reset)",
+            room_id,
+            removed.len(),
+            inserted.len(),
+            changed.len()
         );
-        self.begin_reset_model();
-        *self.entries.borrow_mut() = entries;
-        self.end_reset_model();
-        self.count_changed();
-        self.historyLoaded(QString::from(room_id));
-        ::log::info!("MessageModel::apply_entries: model reset complete, count={}", self.entries.borrow().len());
     }
 
     /// True when two rows render identically (all QML-visible fields equal).
