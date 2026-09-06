@@ -22,9 +22,6 @@ maximum visual customization and the everyday chat feature set.
   tries both A and AAAA records.
 - **End-to-end encryption** via `matrix-sdk-crypto` (Olm/Megolm). Keys are
   persisted in a SQLite store under `~/.local/share/Rustrix/sqlite/`.
-- **Automatic migration** of the old `matrix-client/` data directory to
-  `Rustrix/` on first launch of the new version (session, crypto store,
-  avatars, theme — all preserved).
 
 ### Chat
 - Send and receive **text messages** (Markdown supported via the SDK).
@@ -229,10 +226,6 @@ install -Dm644 assets/rustrix.desktop ~/.local/share/applications/rustrix.deskto
 | `~/.local/share/Rustrix/avatars/` | Downloaded avatar thumbnails |
 | `~/.config/Rustrix/theme.json` | Custom appearance settings |
 | `~/Downloads/Rustrix/` | All downloads from chats |
-
-(If you previously used `matrix-client`, the old `~/.local/share/matrix-client/`
-directory is automatically renamed to `~/.local/share/Rustrix/` on the first
-launch — your session, E2E keys, and theme are preserved.)
 
 ## Removing the saved session / logout
 

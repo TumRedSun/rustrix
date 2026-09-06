@@ -186,7 +186,6 @@ impl MatrixClient {
         let base = directories::ProjectDirs::from("dev", "rustrix", "Rustrix")
             .map(|d| d.data_dir().to_path_buf())
             .unwrap_or_else(|| std::env::temp_dir().join("Rustrix"));
-        crate::avatar_cache::migrate_old_data_dir(&base);
         std::fs::create_dir_all(&base).ok();
         base.join("session.json")
     }
